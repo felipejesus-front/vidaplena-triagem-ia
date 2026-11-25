@@ -1,0 +1,801 @@
+{
+  "id": "vpTriagem0000001",
+  "name": "VidaPlena - Triagem de mensagens",
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "novo-ticket",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "50dba409-8b17-5d45-abe1-2a3de6ff0223",
+      "name": "Novo ticket",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "68323ea8-00e7-5417-abf9-93159d8740fe"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "fe52827c-7f6c-57a4-953d-64bad6612c39",
+              "leftValue": "={{ $json.headers['x-api-key'] ?? '' }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "={{ $env.INTERNAL_API_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6174ba70-e15b-552f-8b65-e9f30e10f3cd",
+      "name": "Chamada autêntica?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "errorMessage": "Webhook chamado sem X-Api-Key válida."
+      },
+      "id": "dcdc866e-ba97-5a81-8127-a6cf19446c8d",
+      "name": "Chamada não autorizada",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        440,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "90384070-ca23-5ac1-ac38-764247db7d7f",
+              "name": "ticket_id",
+              "value": "={{ $json.body.ticket_id }}",
+              "type": "number"
+            },
+            {
+              "id": "fde3bf51-f58c-59b7-89d8-4429a40d3dfb",
+              "name": "protocolo",
+              "value": "={{ $json.body.protocolo }}",
+              "type": "string"
+            },
+            {
+              "id": "6bae573e-5110-5b44-8a4a-26064d71fb17",
+              "name": "recebido_no_n8n_em",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "1fe1f0b6-8d0c-5470-83bd-7f2f9091381f",
+      "name": "Normalizar entrada",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        440,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:3000/classify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ticket_id: $json.ticket_id }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "97766735-f931-5167-8cb8-4fbd88f42f7c",
+      "name": "Classificar com IA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "or",
+          "conditions": [
+            {
+              "id": "0e8b317d-ceeb-5353-880f-efd7a9e9bc14",
+              "leftValue": "={{ $json.classificacao.requer_humano }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "44930403-4768-5b64-8025-d99a5d541d87",
+              "leftValue": "={{ $json.classificacao.confianca }}",
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              },
+              "rightValue": 0.7
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "327a1348-2e33-5eaf-82a5-5a20cc2575a5",
+      "name": "Precisa de humano?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "Urgência",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "9edaadeb-18e7-59c8-aed2-49ac6c39ce1a",
+                    "leftValue": "={{ $json.classificacao.categoria }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "urgencia_assistencial"
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "Autorização",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "890cb7fe-58d8-54a7-8abc-749f0fb6e712",
+                    "leftValue": "={{ $json.classificacao.categoria }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "autorizacao"
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "Reembolso",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "a5434970-fa32-53f9-b787-408c196fd5b9",
+                    "leftValue": "={{ $json.classificacao.categoria }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "reembolso"
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "Financeiro",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "8b760deb-021e-546e-b1d0-b3d339e81c19",
+                    "leftValue": "={{ $json.classificacao.categoria }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "financeiro"
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "Dúvida sobre o plano",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "4ba945f6-05c8-5041-a684-9a09e1a0f1d5",
+                    "leftValue": "={{ $json.classificacao.categoria }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "duvida_plano"
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "Contrato",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "f540dd3a-3bfe-5c80-92ca-df3b4460c16d",
+                    "leftValue": "={{ $json.classificacao.categoria }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "contrato"
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "Ouvidoria",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "8e3ef801-268a-5d94-b7e4-5d94f9776256",
+                    "leftValue": "={{ $json.classificacao.categoria }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "rightValue": "ouvidoria"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "Não mapeada"
+        }
+      },
+      "id": "b4ccc394-6bf9-5aeb-8638-da5b8e8ec74e",
+      "name": "Rotear por categoria",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:3000/setores/urgencia/encaminhamentos",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ticket_id: $json.ticket_id, classificacao: $json.classificacao, roteado_por: 'n8n', execucao_n8n: $execution.id }) }}",
+        "options": {}
+      },
+      "id": "b4624760-d359-5a7f-b4ae-ef9e9ae3c1e0",
+      "name": "Encaminhar → Urgência",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1400,
+        40
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:3000/setores/autorizacoes/encaminhamentos",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ticket_id: $json.ticket_id, classificacao: $json.classificacao, roteado_por: 'n8n', execucao_n8n: $execution.id }) }}",
+        "options": {}
+      },
+      "id": "e71e9dfb-5e3d-58d7-b3c5-95b207473d6b",
+      "name": "Encaminhar → Autorizações",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1400,
+        180
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:3000/setores/reembolsos/encaminhamentos",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ticket_id: $json.ticket_id, classificacao: $json.classificacao, roteado_por: 'n8n', execucao_n8n: $execution.id }) }}",
+        "options": {}
+      },
+      "id": "6335640c-f057-555a-a987-1c8ea26a2eb5",
+      "name": "Encaminhar → Reembolsos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1400,
+        320
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:3000/setores/financeiro/encaminhamentos",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ticket_id: $json.ticket_id, classificacao: $json.classificacao, roteado_por: 'n8n', execucao_n8n: $execution.id }) }}",
+        "options": {}
+      },
+      "id": "4d888c1a-b04d-5319-bb82-e428c9a1aaf1",
+      "name": "Encaminhar → Financeiro",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1400,
+        460
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:3000/setores/atendimento/encaminhamentos",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ticket_id: $json.ticket_id, classificacao: $json.classificacao, roteado_por: 'n8n', execucao_n8n: $execution.id }) }}",
+        "options": {}
+      },
+      "id": "88da6982-935c-57ff-b690-50de0df350d7",
+      "name": "Encaminhar → Atendimento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1400,
+        600
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:3000/setores/relacionamento/encaminhamentos",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ticket_id: $json.ticket_id, classificacao: $json.classificacao, roteado_por: 'n8n', execucao_n8n: $execution.id }) }}",
+        "options": {}
+      },
+      "id": "3ebafbf6-2423-5a48-ba04-2bd7c420dd77",
+      "name": "Encaminhar → Relacionamento",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1400,
+        740
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:3000/setores/ouvidoria/encaminhamentos",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ticket_id: $json.ticket_id, classificacao: $json.classificacao, roteado_por: 'n8n', execucao_n8n: $execution.id }) }}",
+        "options": {}
+      },
+      "id": "7a4c20b3-1160-529b-a99f-1a55b0aa1b82",
+      "name": "Encaminhar → Ouvidoria",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1400,
+        880
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:3000/setores/triagem-manual/encaminhamentos",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Api-Key",
+              "value": "={{ $env.INTERNAL_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ticket_id: $json.ticket_id, classificacao: $json.classificacao, roteado_por: 'n8n', execucao_n8n: $execution.id }) }}",
+        "options": {}
+      },
+      "id": "b871efe8-c26c-5d56-9108-3900bba7e9f9",
+      "name": "Encaminhar → Triagem manual",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        -40
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "content": "## 1. Entrada\nO backend chama o webhook só com `ticket_id` e `protocolo` (a mensagem não passa pelo n8n: LGPD).\nO IF confere o header `X-Api-Key` com `$env.INTERNAL_API_KEY`; sem chave válida, a execução para com erro.",
+        "width": 680,
+        "height": 560,
+        "color": 7
+      },
+      "id": "5d2560cc-4dce-550b-9c21-f01591dcbc14",
+      "name": "Nota: entrada",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -60,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 2. Classificação por IA\n`POST /classify`: o backend chama o Gemini, valida (Zod + regras) e salva.\nVai para a triagem manual se `requer_humano` ou `confianca < 0.7`.",
+        "width": 400,
+        "height": 380,
+        "color": 5
+      },
+      "id": "34fbd7fa-2aa3-5898-8c14-3869e16de5f3",
+      "name": "Nota: classificação",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        640,
+        60
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 3. Roteamento por setor\nUm HTTP Request por setor: `POST /setores/<slug>/encaminhamentos`.\nCategoria não mapeada cai na triagem manual. Os endpoints são idempotentes (retry seguro).",
+        "width": 560,
+        "height": 1160,
+        "color": 4
+      },
+      "id": "43596792-1bd9-502d-a97f-12a8b7b25375",
+      "name": "Nota: roteamento",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1060,
+        -140
+      ]
+    }
+  ],
+  "connections": {
+    "Novo ticket": {
+      "main": [
+        [
+          {
+            "node": "Chamada autêntica?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chamada autêntica?": {
+      "main": [
+        [
+          {
+            "node": "Normalizar entrada",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Chamada não autorizada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar entrada": {
+      "main": [
+        [
+          {
+            "node": "Classificar com IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classificar com IA": {
+      "main": [
+        [
+          {
+            "node": "Precisa de humano?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Precisa de humano?": {
+      "main": [
+        [
+          {
+            "node": "Encaminhar → Triagem manual",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Rotear por categoria",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rotear por categoria": {
+      "main": [
+        [
+          {
+            "node": "Encaminhar → Urgência",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Encaminhar → Autorizações",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Encaminhar → Reembolsos",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Encaminhar → Financeiro",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Encaminhar → Atendimento",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Encaminhar → Relacionamento",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Encaminhar → Ouvidoria",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Encaminhar → Triagem manual",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "tags": [],
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

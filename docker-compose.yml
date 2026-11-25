@@ -1,0 +1,145 @@
+# VidaPlena Saúde — triagem de mensagens com IA + n8n
+# Uso: cp .env.example .env  →  preencha GEMINI_API_KEY  →  docker compose up -d --build
+# Nenhum segredo fica neste arquivo: os internos são gerados pelo serviço secrets-init.
+
+name: vidaplena
+
+x-n8n-imagem: &n8n-imagem n8nio/n8n:2.47.3
+
+# Configuração comum ao n8n e ao n8n-import (mesmo banco, mesma chave de criptografia).
+x-n8n-env: &n8n-env
+  DB_TYPE: postgresdb
+  DB_POSTGRESDB_HOST: db
+  DB_POSTGRESDB_PORT: "5432"
+  DB_POSTGRESDB_DATABASE: vidaplena
+  DB_POSTGRESDB_USER: vidaplena
+  DB_POSTGRESDB_PASSWORD_FILE: /segredos/postgres_password
+  DB_POSTGRESDB_SCHEMA: n8n
+  N8N_ENCRYPTION_KEY_FILE: /segredos/n8n_encryption_key
+  # Conta de administrador criada automaticamente (sem cadastro manual na primeira tela).
+  N8N_INSTANCE_OWNER_MANAGED_BY_ENV: "true"
+  N8N_INSTANCE_OWNER_EMAIL: admin@vidaplena.example
+  N8N_INSTANCE_OWNER_FIRST_NAME: Admin
+  N8N_INSTANCE_OWNER_LAST_NAME: VidaPlena
+  N8N_INSTANCE_OWNER_PASSWORD_HASH_FILE: /segredos/n8n_owner_password_hash
+  GENERIC_TIMEZONE: America/Sao_Paulo
+  TZ: America/Sao_Paulo
+  N8N_DIAGNOSTICS_ENABLED: "false"
+  N8N_PERSONALIZATION_ENABLED: "false"
+
+services:
+  # Gera, só na primeira subida, os segredos internos num volume (nada vai para o repositório).
+  # Usa a imagem do n8n porque ela já traz Node e bcryptjs (para o hash da senha do admin).
+  secrets-init:
+    image: *n8n-imagem
+    user: "0:0"
+    entrypoint: ["node", "/infra/segredos/gerar-segredos.cjs"]
+    environment:
+      # Opcionais: se definidos no .env, são usados em vez de gerados.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-}
+      N8N_OWNER_PASSWORD: ${N8N_OWNER_PASSWORD:-}
+    volumes:
+      - segredos:/segredos
+      - ./infra/segredos:/infra/segredos:ro
+    restart: "no"
+
+  db:
+    image: postgres:18.6-alpine
+    environment:
+      POSTGRES_USER: vidaplena
+      POSTGRES_DB: vidaplena
+      POSTGRES_PASSWORD_FILE: /segredos/postgres_password
+      TZ: America/Sao_Paulo
+    volumes:
+      - db_data:/var/lib/postgresql
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+      - segredos:/segredos:ro
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vidaplena -d vidaplena"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    environment:
+      PORT: "3000"
+      TZ: America/Sao_Paulo
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?Defina GEMINI_API_KEY no arquivo .env (veja .env.example)}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
+      IA_MAX_TENTATIVAS: "2"
+      PGHOST: db
+      PGPORT: "5432"
+      PGUSER: vidaplena
+      PGDATABASE: vidaplena
+      PGPASSWORD_FILE: /segredos/postgres_password
+      INTERNAL_API_KEY_FILE: /segredos/internal_api_key
+      N8N_WEBHOOK_URL: http://n8n:5678/webhook/novo-ticket
+    volumes:
+      - segredos:/segredos:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # Importa e publica o fluxo versionado em n8n/workflows/ antes de o n8n subir.
+  n8n-import:
+    image: *n8n-imagem
+    entrypoint: ["/bin/sh", "/infra/n8n/importar-fluxo.sh"]
+    environment:
+      <<: *n8n-env
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/workflows
+      - ./infra/n8n:/infra/n8n:ro
+      - segredos:/segredos:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  n8n:
+    image: *n8n-imagem
+    # Wrapper: exporta INTERNAL_API_KEY (lido do volume de segredos) para os nodes usarem $env.
+    entrypoint: ["/bin/sh", "/infra/n8n/iniciar-n8n.sh"]
+    environment:
+      <<: *n8n-env
+      N8N_HOST: localhost
+      N8N_PORT: "5678"
+      WEBHOOK_URL: http://localhost:5678/
+      N8N_SECURE_COOKIE: "false"
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: "168"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/workflows
+      - ./infra/n8n:/infra/n8n:ro
+      - segredos:/segredos:ro
+    ports:
+      - "127.0.0.1:5678:5678"
+    depends_on:
+      n8n-import:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # frontend (Marco 2): React + nginx, proxy de /api para o backend.
+
+volumes:
+  db_data:
+  n8n_data:
+  segredos:

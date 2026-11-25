@@ -1,0 +1,16 @@
+# Segredos
+.env
+.env.*
+!.env.example
+
+# Dependências e builds
+node_modules/
+dist/
+coverage/
+
+# Material do enunciado (propriedade da KODIE; não publicar)
+*.pdf
+
+# Sistema/editor
+.DS_Store
+.vscode/
