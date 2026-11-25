@@ -16,8 +16,9 @@ O "Fale conosco" de uma operadora de planos de saúde fictícia recebe mensagens
 7. [Documentação do fluxo de automação (prints)](#7-documentação-do-fluxo-de-automação-prints)
 8. [Resultados dos testes](#8-resultados-dos-testes)
 9. [Segurança e privacidade](#9-segurança-e-privacidade)
-10. [Limitações e próximos passos](#10-limitações-e-próximos-passos)
+10. [Limitações conhecidas](#10-limitações-conhecidas)
 11. [Estrutura do repositório](#11-estrutura-do-repositório)
+12. [Próximos passos](#12-próximos-passos)
 
 ---
 
@@ -376,19 +377,16 @@ Também foram testados:
 - **Prompt injection:** a mensagem vai delimitada e é tratada como dado. A IA é instruída a ignorar ordens embutidas e a sinalizar a tentativa, e o backend então força a revisão humana. Além disso, o setor é decidido pelo backend, não pelo texto da IA.
 - **Portas** da API (3000) e do n8n (5678) abertas só em `localhost`.
 
-## 10. Limitações e próximos passos
+## 10. Limitações conhecidas
 
-**Limitações conhecidas**
 - A **confiança** informada pela IA não é uma probabilidade calibrada; ela é usada como um sinal a mais, junto com as regras e a rede de segurança.
 - A **rede de segurança** usa uma lista simples de termos. Ela prefere errar para o lado seguro (falso positivo leva o ticket a um humano), mas não reconhece todas as formas de descrever uma emergência.
 - O **modelo gratuito** do Gemini às vezes responde "alta demanda". O sistema tenta de novo uma vez e, se continuar falhando, manda o ticket para a triagem manual.
 - O **limite de envios** e a fila de eventos ficam em memória, o que é suficiente para uma instância da API.
+- A **listagem de tickets** (`GET /tickets`) não exige login, o que é aceitável só em ambiente local (portas abertas apenas em `localhost`).
+- Quando não há prestador da especialidade no bairro informado, a busca da rede credenciada pode sugerir prestadores de outra cidade.
 
-**Próximos passos**
-- Front-end em React ("Fale conosco" + listagem), com design inspirado na paleta de *Cyberpunk 2077*.
-- Linha do tempo do ticket em tempo real (Server-Sent Events), aproveitando a tabela `ticket_events`.
-- Script de avaliação de acurácia com um conjunto de mensagens rotuladas (`npm run eval`).
-- Endurecimento para produção (VPS): HTTPS, segredos gerenciados e autenticação na listagem.
+Os planos para essas e outras melhorias estão na [seção 12](#12-próximos-passos).
 
 ## 11. Estrutura do repositório
 
@@ -413,3 +411,42 @@ Documentos de apoio:
 - [docs/prompt-e-validacao.md](docs/prompt-e-validacao.md): prompt completo, schema e regras de validação;
 - [docs/banco-de-dados.md](docs/banco-de-dados.md): tabelas, regras e dados de exemplo;
 - [docs/fluxo-n8n.md](docs/fluxo-n8n.md): configuração de cada node do n8n.
+
+## 12. Próximos passos
+
+Esta entrega cobre todos os requisitos do desafio: API, IA, automação, documentação e Docker. A partir daqui, o plano é evoluir o projeto em fases.
+
+### Fase 2: interface e visibilidade
+
+- **Front-end em React** com três telas:
+  - **Fale conosco:** formulário de envio que mostra o número de protocolo assim que a mensagem é recebida;
+  - **Linha do tempo do ticket:** cada etapa (recebido, IA consultada, validação, setor escolhido...) aparece **em tempo real**, e cada uma pode ser expandida para mostrar o dado real daquela etapa;
+  - **Listagem de tickets:** com filtros por status, categoria e prioridade; clicar num ticket mostra a linha do tempo dele.
+- **Tempo real com Server-Sent Events (SSE):** a API já grava cada etapa na tabela `ticket_events`; falta a rota `GET /tickets/:id/stream`, que transmite os eventos ao navegador e permite reconectar sem perder nenhum.
+- **Design system inspirado em *Cyberpunk 2077***, numa ponte com a origem da ideia (a Trauma Team). A inspiração fica só na paleta de cores e na estética, sem logos, fontes ou artes do jogo, que são marcas registradas.
+- **Serviço `frontend` no Docker Compose** (nginx), servindo o React e repassando as chamadas para a API.
+
+### Fase 3: medir a qualidade da IA
+
+- **Avaliação de acurácia** (`npm run eval`): um conjunto de cerca de 30 mensagens rotuladas, diferentes dos exemplos do prompt, para medir quantas vezes a IA acerta a categoria e a prioridade.
+- Usar esse resultado para **comparar modelos e versões do prompt** antes de cada mudança, em vez de confiar só em testes manuais.
+- Medir a taxa de **triagem manual** e de **fallback** ao longo do tempo, para ajustar o limiar de confiança (hoje 0,7).
+
+### Fase 4: produção
+
+- **Deploy numa VPS** em subdomínio próprio, com proxy reverso (Caddy ou Traefik) e **HTTPS**.
+- **Segredos de produção:** revisar a geração automática atual (pensada para facilitar a execução local), as permissões dos arquivos de segredo e as portas expostas.
+- **Autenticação** na listagem e na linha do tempo, para que só a equipe da operadora veja os tickets.
+- **Limite de envios persistente** (hoje fica em memória), para funcionar com mais de uma instância da API.
+
+### Melhorias na solução
+
+- **Reprocessar tickets com erro:** um botão que reenvia para a automação os tickets que ficaram com status `erro` (por exemplo, quando o n8n estava fora do ar).
+- **Notificação real dos setores** (e-mail ou chat), usando o e-mail cadastrado em cada setor.
+- **Busca da rede credenciada** mais precisa: restringir as sugestões à cidade do cliente e permitir buscar por procedimento, além de especialidade.
+- **Rede de segurança mais completa**, com mais termos e variações para descrever emergências.
+
+### Outros casos do desafio sobre a mesma base
+
+- **4.3, Organização de Tarefas:** usar a prioridade e o SLA de cada setor para montar a fila de trabalho de cada equipe, com o que vence primeiro no topo.
+- **4.4, Perguntas Frequentes:** para dúvidas simples (carência, cobertura, segunda via), sugerir uma resposta ao cliente com base num conjunto de informações da operadora, sempre revisada por uma pessoa antes do envio.
